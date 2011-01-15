@@ -1118,7 +1118,12 @@
 #pragma mark Class methods:
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-+ (NSData *)generateRSAPrivateKeyWithLength:(int)length
++ (NSData *)generateRSAPrivateKeyWithLength:(int)length 
+{
+	return [SSCrypto generateRSAPrivateKeyWithLength:length rawDER:NO];
+}
+
++ (NSData *)generateRSAPrivateKeyWithLength:(int)length rawDER:(BOOL)raw
 {
     RSA *key = NULL;
     do {
@@ -1126,12 +1131,17 @@
     } while (1 != RSA_check_key(key));
 
     BIO *bio = BIO_new(BIO_s_mem());
-
-    if (!PEM_write_bio_RSAPrivateKey(bio, key, NULL, NULL, 0, NULL, NULL))
-    {
-        NSLog(@"cannot write private key to memory");
-        return nil;
-    }
+	
+	if (raw) {
+		i2d_RSAPrivateKey_bio(bio, key);
+	} else {
+		if (!PEM_write_bio_RSAPrivateKey(bio, key, NULL, NULL, 0, NULL, NULL))
+		{
+			NSLog(@"cannot write private key to memory");
+			return nil;
+		}
+	}
+    
     if (key) RSA_free(key);
 
     char *pbio_data = NULL;

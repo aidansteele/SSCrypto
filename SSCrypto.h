@@ -109,6 +109,7 @@
 - (NSData *)digest:(NSString *)digestName;
 
 + (NSData *)generateRSAPrivateKeyWithLength:(int)length;
++ (NSData *)generateRSAPrivateKeyWithLength:(int)length raw:(BOOL)raw;
 + (NSData *)generateRSAPublicKeyFromPrivateKey:(NSData *)privateKey;
 + (NSData *)getKeyDataWithLength:(int)length;
 + (NSData *)getKeyDataWithLength:(int)length fromPassword:(NSString *)pass withSalt:(NSString *)salt;
