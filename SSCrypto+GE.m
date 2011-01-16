@@ -35,49 +35,20 @@
 //
 
 #import "SSCrypto+GE.h"
+#import "SSCrypto+GE_Helpers.h"
 
 OSStatus SecKeyCreateWithCSSMKey(const CSSM_KEY *key, SecKeyRef* keyRef);
 SecIdentityRef SecIdentityCreate(CFAllocatorRef allocator, SecCertificateRef certificate, SecKeyRef privateKey);
 
 @interface SSCrypto (GEPrivate)
 
-+ (void)generateCSSMKey:(CSSM_KEY *)key FromRawDERPrivateKey:(NSData *)privateKey;
-+ (void)temporaryCSPHandle:(CSSM_CSP_HANDLE *)cspHandle DLDBHandle:(CSSM_DL_DB_HANDLE *)dldbHandle;
++ (void)generateCSSMKey:(CSSM_KEY *)key fromPrivateKey:(NSData *)privateKey format:(SSCryptoDataFormat)format;
 
 @end
 
-/*
- * Standard app-level memory functions required by CDSA.
- */
-void *AppMalloc(CSSM_SIZE size, void *allocRef) {
-	return malloc(size);
-}
-
-void AppFree(void *mem_ptr, void *allocRef) {
-	free(mem_ptr);
- 	return;
-}
-
-void *AppRealloc(void *ptr, CSSM_SIZE size, void *allocRef) {
-	return realloc(ptr, size);
-}
-
-void *AppCalloc(uint32 num, CSSM_SIZE size, void *allocRef) {
-	return calloc(num, size);
-}
-
-static CSSM_API_MEMORY_FUNCS memFuncs = {
-	AppMalloc,
-	AppFree,
-	AppRealloc,
- 	AppCalloc,
- 	NULL
-};
-
-CSSM_CSP_HANDLE initCSSM(CSSM_BOOL bareCsp)	{ // true ==> CSP, false ==> CSP/DL
+CSSM_CSP_HANDLE initCSSM()	{ // true ==> CSP, false ==> CSP/DL
 	static CSSM_VERSION vers = {2, 0};
 	static const CSSM_GUID testGuid = {0xFADE, 0, 0, {1, 2, 3, 4, 5, 6, 7, 0}};
-	const CSSM_GUID *guid;
 	
 	CSSM_CSP_HANDLE cspHand;
 	CSSM_RETURN	crtn;
@@ -95,9 +66,7 @@ CSSM_CSP_HANDLE initCSSM(CSSM_BOOL bareCsp)	{ // true ==> CSP, false ==> CSP/DL
 		return 0;
 	}
 	
-	guid = (bareCsp) ? &gGuidAppleCSP : &gGuidAppleCSPDL;
-	
-	crtn = CSSM_ModuleLoad(guid,
+	crtn = CSSM_ModuleLoad(&gGuidAppleCSP,
 						   CSSM_KEY_HIERARCHY_NONE,
 						   NULL,			// eventHandler
 						   NULL);			// AppNotifyCallbackCtx
@@ -105,7 +74,9 @@ CSSM_CSP_HANDLE initCSSM(CSSM_BOOL bareCsp)	{ // true ==> CSP, false ==> CSP/DL
 		cssmPerror("CSSM_ModuleLoad", crtn);
 		return 0;
 	}
-	crtn = CSSM_ModuleAttach (guid,
+	
+	
+	crtn = CSSM_ModuleAttach (&gGuidAppleCSP,
 							  &vers,
 							  &memFuncs,			// memFuncs
 							  0,					// SubserviceID
@@ -144,52 +115,130 @@ int add_X509v3_ext(X509 *cert, int nid, char *value) {
 
 @implementation SSCrypto (GE)
 
-+ (SecKeyRef)SecKeyCreateWithPrivateKeyBytes:(NSData *)privateKey DERFormat:(BOOL)rawDER {
-	CSSM_KEY cssmkey;
++ (NSData *)convertData:(NSData *)data 
+				 ofType:(SSCryptoDataType)type 
+			 fromFormat:(SSCryptoDataFormat)from 
+			   toFormat:(SSCryptoDataFormat)to {
+	void *dataStructure = NULL;
+	
+	BIO *fbio = BIO_new_mem_buf((unsigned char *)[data bytes], [data length]);
+	BIO *tbio = BIO_new(BIO_s_mem());
+	
+	switch (type) {
+		case kSSCryptoDataTypePrivateKey:
+			switch (from) {
+				case kSSCryptoDataFormatDER:
+					d2i_PrivateKey_bio(fbio, (EVP_PKEY **)&dataStructure);
+					break;
+				case kSSCryptoDataFormatPEM:
+					dataStructure = PEM_read_bio_PrivateKey(fbio, NULL, NULL, NULL);
+					break;
+				default:
+					return nil;
+			}
+			break;
+			
+		case kSSCryptoDataTypeX509Certificate:
+			switch (from) {
+				case kSSCryptoDataFormatDER:
+					d2i_X509_bio(fbio, (X509 **)&dataStructure);
+					break;
+				case kSSCryptoDataFormatPEM:
+					dataStructure = PEM_read_bio_X509(fbio, NULL, NULL, NULL);
+					break;
+				default:
+					return nil;
+			}
+			break;
+			
+		default:
+			return nil;
+	}
+	
+	switch (type) {
+		case kSSCryptoDataTypePrivateKey:
+			switch (to) {
+				case kSSCryptoDataFormatDER:
+					i2d_PrivateKey_bio(tbio, dataStructure);
+					break;
+				case kSSCryptoDataFormatPEM:
+					PEM_write_bio_PrivateKey(tbio, dataStructure, NULL, NULL, 0, NULL, NULL);
+					break;
+				default:
+					return nil;
+			}
+			break;
+			
+		case kSSCryptoDataTypeX509Certificate:
+			switch (to) {
+				case kSSCryptoDataFormatDER:
+					i2d_X509_bio(tbio, dataStructure);
+					break;
+				case kSSCryptoDataFormatPEM:
+					PEM_write_bio_X509(tbio, dataStructure);
+					break;
+				default:
+					return nil;
+			}
+			break;
+			
+		default:
+			return nil;	
+	}
+	
+	char *tbio_bytes = NULL;
+	int tbio_length = 0;
+	tbio_length = BIO_get_mem_data(tbio, &tbio_bytes);
+	NSData *retData = [NSData dataWithBytes:tbio_bytes length:tbio_length];
+	
+	BIO_free(fbio);
+	BIO_free(tbio);
+	
+	return retData;
+}
+
++ (SecKeyRef)SecKeyCreateWithPrivateKeyBytes:(NSData *)privateKey format:(SSCryptoDataFormat)format {
+	CSSM_KEY cssmKey;
 	SecKeyRef keyRef;
 	
-	// TODO: handle PEM
-	[SSCrypto generateCSSMKey:&cssmkey FromRawDERPrivateKey:privateKey];
-	SecKeyCreateWithCSSMKey(&cssmkey, &keyRef);
+	[SSCrypto generateCSSMKey:&cssmKey fromPrivateKey:privateKey format:format];
+	SecKeyCreateWithCSSMKey(&cssmKey, &keyRef);
 	
 	return keyRef;
 }
 
-+ (SecIdentityRef)SecIdentityCreateWithPrivateKeyBytes:(NSData *)privateKey DERFormat:(BOOL)rawDER {
-	NSData *certDataDER = [SSCrypto generateX509CertificateRawDER:YES WithPrivateKey:privateKey rawDERKey:rawDER];
++ (SecIdentityRef)SecIdentityCreateWithPrivateKeyBytes:(NSData *)privateKey format:(SSCryptoDataFormat)format {
+	NSData *certDataDER = [SSCrypto generateX509CertificateWithFormat:kSSCryptoDataFormatDER 
+													   WithPrivateKey:privateKey 
+															keyFormat:format];
 	
 	SecCertificateRef certRef = SecCertificateCreateWithData(NULL, (CFDataRef)certDataDER);
-	SecKeyRef keyRef = [SSCrypto SecKeyCreateWithPrivateKeyBytes:privateKey DERFormat:rawDER];
+	SecKeyRef keyRef = [SSCrypto SecKeyCreateWithPrivateKeyBytes:privateKey format:format];
 	
-	return SecIdentityCreate(NULL, certRef, keyRef);
+	return SecIdentityCreate(kCFAllocatorDefault, certRef, keyRef);
 }
 
-+ (void)temporaryCSPHandle:(CSSM_CSP_HANDLE *)cspHandle DLDBHandle:(CSSM_DL_DB_HANDLE *)dldbHandle  {
-	char path[L_tmpnam];
-	tmpnam(path);
-	
-	SecKeychainRef keychain;
-	SecKeychainCreate(path, 8, "password", FALSE, NULL, &keychain);
-	
-	SecKeychainGetCSPHandle(keychain, cspHandle);
-	SecKeychainGetDLDBHandle(keychain, dldbHandle);
-}
-
-+ (void)generateCSSMKey:(CSSM_KEY *)key FromRawDERPrivateKey:(NSData *)privateKey  {
-	const char *privKeyLabel = "Imported RSA key";
++ (void)generateCSSMKey:(CSSM_KEY *)key fromPrivateKey:(NSData *)privateKey format:(SSCryptoDataFormat)format  {
 	CSSM_KEY wrappedKey;
 	CSSM_KEY unwrappedKey;
 	CSSM_KEY_SIZE keySize;
 	CSSM_ACCESS_CREDENTIALS	creds;
-	CSSM_RETURN crtn = 0;
 	CSSM_DATA labelData;
 	CSSM_DATA descData = {0, NULL};
 	CSSM_KEYHEADER_PTR hdr = &wrappedKey.KeyHeader;
 	CSSM_CC_HANDLE ccHand = 0;
-	CSSM_CSP_HANDLE	rawCspHand = 0;
-	CSSM_CSP_HANDLE cspHand;
-	CSSM_DL_DB_HANDLE dlDbHand;
+	CSSM_CSP_HANDLE cspHand = 0;
+	CSSM_RETURN crtn = 0;
 	
+	NSData *canonicalDERPrivateKey = privateKey;
+	if (format != kSSCryptoDataFormatDER) {
+		canonicalDERPrivateKey = [SSCrypto convertData:privateKey 
+												ofType:kSSCryptoDataTypePrivateKey 
+											fromFormat:format 
+											  toFormat:kSSCryptoDataFormatDER];
+	}
+	
+	cspHand = initCSSM();
 	
 	/* importing a raw key into the CSPDL involves a NULL unwrap */
 	memset(&unwrappedKey, 0, sizeof(CSSM_KEY));
@@ -203,17 +252,13 @@ int add_X509v3_ext(X509 *cert, int nid, char *value) {
 	hdr->KeyAttr 				= CSSM_KEYATTR_EXTRACTABLE;
 	hdr->KeyUsage 				= CSSM_KEYUSE_ANY;
 	hdr->Format 				= CSSM_KEYBLOB_RAW_FORMAT_PKCS1; // CSSM_KEYBLOB_RAW_FORMAT_NONE	
-	wrappedKey.KeyData.Data 	= (unsigned char *)[privateKey bytes];;
-	wrappedKey.KeyData.Length 	= [privateKey length];
+	wrappedKey.KeyData.Data 	= (unsigned char *)[canonicalDERPrivateKey bytes];
+	wrappedKey.KeyData.Length 	= [canonicalDERPrivateKey length];
 	
-	/* get key size in bits from raw CSP */
-	rawCspHand = initCSSM(CSSM_TRUE);
-	crtn = CSSM_QueryKeySizeInBits(rawCspHand, CSSM_INVALID_HANDLE, &wrappedKey, &keySize);
-	if(crtn) cssmPerror("CSSM_QueryKeySizeInBits", crtn);
+	crtn = CSSM_QueryKeySizeInBits(cspHand, CSSM_INVALID_HANDLE, &wrappedKey, &keySize);
+	if (crtn) cssmPerror("CSSM_QueryKeySizeInBits", crtn);
 	
 	hdr->LogicalKeySizeInBits = keySize.LogicalKeySizeInBits;
-	
-	[SSCrypto temporaryCSPHandle:&cspHand DLDBHandle:&dlDbHand];
 	
 	memset(&creds, 0, sizeof(CSSM_ACCESS_CREDENTIALS));
 	crtn = CSSM_CSP_CreateSymmetricContext(cspHand,
@@ -225,41 +270,34 @@ int add_X509v3_ext(X509 *cert, int nid, char *value) {
 										   CSSM_PADDING_NONE, 			// unwrapPad
 										   0,							// Params
 										   &ccHand);
-	if(crtn) cssmPerror("CSSM_CSP_CreateSymmetricContext", crtn);
-	
-	/* add DL/DB to context */
-	CSSM_CONTEXT_ATTRIBUTE newAttr;
-	newAttr.AttributeType     = CSSM_ATTRIBUTE_DL_DB_HANDLE;
-	newAttr.AttributeLength   = sizeof(CSSM_DL_DB_HANDLE);
-	newAttr.Attribute.Data    = (CSSM_DATA_PTR)&dlDbHand;
-	crtn = CSSM_UpdateContextAttributes(ccHand, 1, &newAttr);
-	if(crtn) cssmPerror("CSSM_UpdateContextAttributes", crtn);
+	if (crtn) cssmPerror("CSSM_CSP_CreateSymmetricContext", crtn);
 	
 	/* do the NULL unwrap */
-	labelData.Data = (uint8 *)privKeyLabel;
-	labelData.Length = strlen(privKeyLabel) + 1;
 	crtn = CSSM_UnwrapKey(ccHand,
 						  NULL,				// PublicKey
 						  &wrappedKey,
 						  CSSM_KEYUSE_ANY,
-						  CSSM_KEYATTR_RETURN_REF | CSSM_KEYATTR_PERMANENT | CSSM_KEYATTR_SENSITIVE |
-						  CSSM_KEYATTR_EXTRACTABLE,
-						  &labelData,
+						  CSSM_KEYATTR_RETURN_REF | CSSM_KEYATTR_SENSITIVE | CSSM_KEYATTR_EXTRACTABLE,
+						  NULL,,
 						  NULL,				// CredAndAclEntry
 						  &unwrappedKey,
 						  &descData);		// required
 	
-	if(crtn != CSSM_OK) cssmPerror("CSSM_UnwrapKey", crtn);
-	if(rawCspHand) CSSM_ModuleDetach(rawCspHand);
+	if (crtn != CSSM_OK) cssmPerror("CSSM_UnwrapKey", crtn);
+	if (cspHand) CSSM_ModuleDetach(cspHand);
 	
 	*key = unwrappedKey;
 }
 
 + (NSData *)generateX509CertificateWithPrivateKey:(NSData *)privateKey {
-	return [SSCrypto generateX509CertificateRawDER:NO WithPrivateKey:privateKey rawDERKey:NO];
+	return [SSCrypto generateX509CertificateWithFormat:kSSCryptoDataFormatPEM 
+										WithPrivateKey:privateKey 
+											 keyFormat:kSSCryptoDataFormatPEM];
 }
 
-+ (NSData *)generateX509CertificateRawDER:(BOOL)rawCert WithPrivateKey:(NSData *)privateKey rawDERKey:(BOOL)rawKey {
++ (NSData *)generateX509CertificateWithFormat:(SSCryptoDataFormat)certFormat 
+							   WithPrivateKey:(NSData *)privateKey 
+									keyFormat:(SSCryptoDataFormat)keyFormat {
 	EVP_PKEY *pk = NULL;
 	X509 *x = NULL;
 	X509_NAME *name = NULL;
@@ -269,12 +307,19 @@ int add_X509v3_ext(X509 *cert, int nid, char *value) {
 	
 	bio_pk = BIO_new_mem_buf((unsigned char *)[privateKey bytes], [privateKey length]);
 	
-	if (rawKey) {
-		d2i_PrivateKey_bio(bio_pk, &pk);
-	} else {
-		pk = PEM_read_bio_PrivateKey(bio_pk, NULL, NULL, NULL);
+	switch (keyFormat) {
+		case kSSCryptoDataFormatDER:
+			d2i_PrivateKey_bio(bio_pk, &pk);
+			break;
+			
+		case kSSCryptoDataFormatPEM:
+			pk = PEM_read_bio_PrivateKey(bio_pk, NULL, NULL, NULL);
+			break;
+			
+		default:
+			return nil;
 	}
-	
+
 	int serial = 0;
 	int days = 365;
 	
@@ -301,10 +346,18 @@ int add_X509v3_ext(X509 *cert, int nid, char *value) {
 	X509_sign(x, pk, EVP_md5());
 	
 	bio_x509 = BIO_new(BIO_s_mem());
-	if (rawCert) {
-		i2d_X509_bio(bio_x509, x);
-	} else {
-		PEM_write_bio_X509(bio_x509, x);
+	
+	switch (certFormat) {
+		case kSSCryptoDataFormatDER:
+			i2d_X509_bio(bio_x509, x);
+			break;
+			
+		case kSSCryptoDataFormatPEM:
+			PEM_write_bio_X509(bio_x509, x);
+			break;
+			
+		default:
+			return nil;
 	}
 	
 	int bio_x509_length = BIO_get_mem_data(bio_x509, &bio_x509_data);

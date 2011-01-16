@@ -26,31 +26,19 @@
  NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-//
-//  SSCrypto+GE.h
-//  Xpeek
-//
-//  Created by Aidan Steele on 15/01/11.
-//  Copyright 2011 Glass Echidna. All rights reserved.
-//
+/*
+ *  SSCrypto+GE_Helpers.h
+ *  Xpeek
+ *
+ *  Created by Aidan Steele on 16/01/11.
+ *  Copyright 2011 Glass Echidna. All rights reserved.
+ *
+ */
+#import <Security/Security.h>
 
-#import <Cocoa/Cocoa.h>
-#import "SSCrypto.h"
-#import <openssl/x509v3.h>
+void *AppMalloc(CSSM_SIZE size, void *allocRef);
+void AppFree(void *mem_ptr, void *allocRef);
+void *AppRealloc(void *ptr, CSSM_SIZE size, void *allocRef);
+void *AppCalloc(uint32 num, CSSM_SIZE size, void *allocRef);
 
-typedef enum {
-	kSSCryptoDataTypePrivateKey = 0,
-	kSSCryptoDataTypeX509Certificate = 1,
-} SSCryptoDataType;
-
-@interface SSCrypto ()
-
-+ (NSData *)convertData:(NSData *)data ofType:(SSCryptoDataType)type fromFormat:(SSCryptoDataFormat)from toFormat:(SSCryptoDataFormat)to;
-
-+ (SecKeyRef)SecKeyCreateWithPrivateKeyBytes:(NSData *)privateKey format:(SSCryptoDataFormat)format;
-+ (SecIdentityRef)SecIdentityCreateWithPrivateKeyBytes:(NSData *)privateKey format:(SSCryptoDataFormat)format;
-
-+ (NSData *)generateX509CertificateWithPrivateKey:(NSData *)privateKey;
-+ (NSData *)generateX509CertificateWithFormat:(SSCryptoDataFormat)certFormat WithPrivateKey:(NSData *)privateKey keyFormat:(SSCryptoDataFormat)keyFormat;
-
-@end
+CSSM_API_MEMORY_FUNCS memFuncs;

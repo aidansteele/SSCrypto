@@ -1120,10 +1120,10 @@
 
 + (NSData *)generateRSAPrivateKeyWithLength:(int)length 
 {
-	return [SSCrypto generateRSAPrivateKeyWithLength:length rawDER:NO];
+	return [SSCrypto generateRSAPrivateKeyWithLength:length format:kSSCryptoDataFormatPEM];
 }
 
-+ (NSData *)generateRSAPrivateKeyWithLength:(int)length rawDER:(BOOL)raw
++ (NSData *)generateRSAPrivateKeyWithLength:(int)length format:(SSCryptoDataFormat)format
 {
     RSA *key = NULL;
     do {
@@ -1132,16 +1132,19 @@
 
     BIO *bio = BIO_new(BIO_s_mem());
 	
-	if (raw) {
-		i2d_RSAPrivateKey_bio(bio, key);
-	} else {
-		if (!PEM_write_bio_RSAPrivateKey(bio, key, NULL, NULL, 0, NULL, NULL))
-		{
-			NSLog(@"cannot write private key to memory");
+	switch (format) {
+		case kSSCryptoDataFormatDER:
+			i2d_RSAPrivateKey_bio(bio, key);
+			break;
+			
+		case kSSCryptoDataFormatPEM:
+			PEM_write_bio_RSAPrivateKey(bio, key, NULL, NULL, 0, NULL, NULL);
+			break;
+			
+		default:
 			return nil;
-		}
 	}
-    
+
     if (key) RSA_free(key);
 
     char *pbio_data = NULL;

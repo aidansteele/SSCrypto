@@ -46,6 +46,11 @@
 #import <openssl/ssl.h>
 #import <openssl/md5.h>
 
+typedef enum {
+	kSSCryptoDataFormatDER = 0,
+	kSSCryptoDataFormatPEM = 1,
+} SSCryptoDataFormat;
+
 @interface NSData (HexDump)
 - (NSString *)encodeBase64;
 - (NSString *)encodeBase64WithNewlines:(BOOL)encodeWithNewlines;
@@ -109,7 +114,7 @@
 - (NSData *)digest:(NSString *)digestName;
 
 + (NSData *)generateRSAPrivateKeyWithLength:(int)length;
-+ (NSData *)generateRSAPrivateKeyWithLength:(int)length raw:(BOOL)raw;
++ (NSData *)generateRSAPrivateKeyWithLength:(int)length format:(SSCryptoDataFormat)format;
 + (NSData *)generateRSAPublicKeyFromPrivateKey:(NSData *)privateKey;
 + (NSData *)getKeyDataWithLength:(int)length;
 + (NSData *)getKeyDataWithLength:(int)length fromPassword:(NSString *)pass withSalt:(NSString *)salt;
