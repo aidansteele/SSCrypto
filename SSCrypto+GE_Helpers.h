@@ -34,6 +34,7 @@
  *  Copyright 2011 Glass Echidna. All rights reserved.
  *
  */
+#import <Foundation/Foundation.h>
 #import <Security/Security.h>
 
 void *AppMalloc(CSSM_SIZE size, void *allocRef);
@@ -42,3 +43,44 @@ void *AppRealloc(void *ptr, CSSM_SIZE size, void *allocRef);
 void *AppCalloc(uint32 num, CSSM_SIZE size, void *allocRef);
 
 CSSM_API_MEMORY_FUNCS memFuncs;
+
+extern const NSString *kSSCryptoX509Subject;
+extern const NSString *kSSCryptoX509Issuer;
+
+extern const NSString *kSSCryptoX509CommonName;
+extern const NSString *kSSCryptoX509Organisation;
+extern const NSString *kSSCryptoX509OrganisationUnit;
+extern const NSString *kSSCryptoX509State;
+extern const NSString *kSSCryptoX509Country;
+extern const NSString *kSSCryptoX509Locality;
+extern const NSString *kSSCryptoX509EmailAddress;
+
+extern const NSString *kSSCryptoX509SerialNumber;
+extern const NSString *kSSCryptoX509NotValidBefore;
+extern const NSString *kSSCryptoX509NotValidAfter;
+
+extern const NSString *kSSCryptoX509KeyUsage;
+extern const NSString *kSSCryptoX509KeyUsageSignature;
+extern const NSString *kSSCryptoX509KeyUsageNonRepudiation;
+extern const NSString *kSSCryptoX509KeyUsageKeyAgreement;
+extern const NSString *kSSCryptoX509KeyUsageCertificateSigning;
+extern const NSString *kSSCryptoX509KeyUsageCRLSigning;
+extern const NSString *kSSCryptoX509KeyUsageKeyEncipherment;
+extern const NSString *kSSCryptoX509KeyUsageDataEncipherment;
+extern const NSString *kSSCryptoX509KeyUsageEncipherOnly;
+extern const NSString *kSSCryptoX509KeyUsageDecipherOnly;
+
+extern const NSString *kSSCryptoX509ExtendedKeyUsage;
+extern const NSString *kSSCryptoX509ExtendedKeyUsageSSLClient;
+extern const NSString *kSSCryptoX509ExtendedKeyUsageSSLServer;
+extern const NSString *kSSCryptoX509ExtendedKeyUsageCodeSigning;
+extern const NSString *kSSCryptoX509ExtendedKeyUsagePKInitClient;
+extern const NSString *kSSCryptoX509ExtendedKeyUsagePKInitServer;
+extern const NSString *kSSCryptoX509ExtendedKeyUsageIChatSigning;
+extern const NSString *kSSCryptoX509ExtendedKeyUsageIChatEncryption;
+extern const NSString *kSSCryptoX509ExtendedKeyUsageDotMacEmailSigning;
+extern const NSString *kSSCryptoX509ExtendedKeyUsageDotMacEmailEncryption;
+extern const NSString *kSSCryptoX509ExtendedKeyUsageEmailProtection;
+
+extern const NSString *kSSCryptoX509BasicConstraints;
+extern const NSString *kSSCryptoX509BasicConstraintsCertificateAuthority;

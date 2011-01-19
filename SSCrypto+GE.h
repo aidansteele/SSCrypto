@@ -37,20 +37,32 @@
 #import <Cocoa/Cocoa.h>
 #import "SSCrypto.h"
 #import <openssl/x509v3.h>
+#import "SSCrypto+GE_Helpers.h"
 
 typedef enum {
 	kSSCryptoDataTypePrivateKey = 0,
 	kSSCryptoDataTypeX509Certificate = 1,
 } SSCryptoDataType;
 
+@interface NSData (SSCrypto_GE)
+
+- (BIO *)bio;
++ (id)dataWithBio:(BIO *)bio;
+
+@end
+
 @interface SSCrypto ()
+
++ (SecIdentityRef)SecIdentityCreateWithDictionary:(NSDictionary *)dictionary signedByIdentity:(SecIdentityRef)signerIdentity;
++ (SecKeyRef)SecKeyCreateWithPrivateKeyBytes:(NSData *)privateKey format:(SSCryptoDataFormat)format;
 
 + (NSData *)convertData:(NSData *)data ofType:(SSCryptoDataType)type fromFormat:(SSCryptoDataFormat)from toFormat:(SSCryptoDataFormat)to;
 
-+ (SecKeyRef)SecKeyCreateWithPrivateKeyBytes:(NSData *)privateKey format:(SSCryptoDataFormat)format;
-+ (SecIdentityRef)SecIdentityCreateWithPrivateKeyBytes:(NSData *)privateKey format:(SSCryptoDataFormat)format;
-
-+ (NSData *)generateX509CertificateWithPrivateKey:(NSData *)privateKey;
-+ (NSData *)generateX509CertificateWithFormat:(SSCryptoDataFormat)certFormat WithPrivateKey:(NSData *)privateKey keyFormat:(SSCryptoDataFormat)keyFormat;
++ (NSData *)generateX509CertificateForDictionary:(NSDictionary *)dictionary WithPrivateKey:(NSData *)privateKey;
++ (NSData *)generateX509CertificateForDictionary:(NSDictionary *)dictionary 
+									  WithFormat:(SSCryptoDataFormat)certFormat 
+								  WithPrivateKey:(NSData *)privateKey 
+								   signedWithKey:(NSData *)caPrivateKey
+									   keyFormat:(SSCryptoDataFormat)keyFormat;
 
 @end
