@@ -52,6 +52,8 @@ const NSString *kSSCryptoX509SerialNumber = @"kSSCryptoX509SerialNumber";
 const NSString *kSSCryptoX509NotValidBefore = @"kSSCryptoX509NotValidBefore";
 const NSString *kSSCryptoX509NotValidAfter = @"kSSCryptoX509NotValidAfter";
 
+const NSString *kSSCryptoX509SubjectAlternativeName = @"kSSCryptoX509SubjectAlternativeName";
+
 const NSString *kSSCryptoX509KeyUsage = @"kSSCryptoX509KeyUsage";
 const NSString *kSSCryptoX509KeyUsageSignature = @"kSSCryptoX509KeyUsageSignature";
 const NSString *kSSCryptoX509KeyUsageNonRepudiation = @"kSSCryptoX509KeyUsageNonRepudiation";

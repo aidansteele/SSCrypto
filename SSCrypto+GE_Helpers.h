@@ -59,6 +59,8 @@ extern const NSString *kSSCryptoX509SerialNumber;
 extern const NSString *kSSCryptoX509NotValidBefore;
 extern const NSString *kSSCryptoX509NotValidAfter;
 
+extern const NSString *kSSCryptoX509SubjectAlternativeName;
+
 extern const NSString *kSSCryptoX509KeyUsage;
 extern const NSString *kSSCryptoX509KeyUsageSignature;
 extern const NSString *kSSCryptoX509KeyUsageNonRepudiation;
