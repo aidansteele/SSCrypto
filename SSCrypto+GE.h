@@ -62,19 +62,6 @@ typedef enum {
 
 + (NSData *)convertData:(NSData *)data ofType:(SSCryptoDataType)type fromFormat:(SSCryptoDataFormat)from toFormat:(SSCryptoDataFormat)to;
 
-#pragma mark -
-#pragma mark To be deprecated?
-+ (SecIdentityRef)SecIdentityCreateWithDictionary:(NSDictionary *)dictionary signedByIdentity:(SecIdentityRef)signerIdentity;
-+ (SecKeyRef)SecKeyCreateWithPrivateKeyBytes:(NSData *)privateKey format:(SSCryptoDataFormat)format;
-
-+ (NSData *)X509CertificateForDictionary:(NSDictionary *)dictionary WithPrivateKey:(NSData *)privateKey;
-+ (NSData *)X509CertificateForDictionary:(NSDictionary *)dictionary 
-									  WithFormat:(SSCryptoDataFormat)certFormat 
-								  WithPrivateKey:(NSData *)privateKey 
-								   signedWithKey:(NSData *)caPrivateKey
-									   keyFormat:(SSCryptoDataFormat)keyFormat;
-
 @end
 
-OSStatus SecKeyCreateWithCSSMKey(const CSSM_KEY *key, SecKeyRef* keyRef);
 SecIdentityRef SecIdentityCreate(CFAllocatorRef allocator, SecCertificateRef certificate, SecKeyRef privateKey);

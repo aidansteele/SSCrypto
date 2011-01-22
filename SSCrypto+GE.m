@@ -36,6 +36,7 @@
 
 #import "SSCrypto+GE.h"
 #import "CollectionUtils.h"
+#import "NSFileManager+DirectoryLocations.h"
 
 @implementation NSData (SSCrypto_GE)
 
@@ -58,9 +59,10 @@
 
 @interface SSCrypto (GEPrivate)
 
+static SecKeychainRef keychain = NULL; // TODO: global variable!
 + (void)generateCSSMKey:(CSSM_KEY *)key fromPrivateKey:(NSData *)privateKey format:(SSCryptoDataFormat)format;
 + (void)populateX509:(X509 *)x509 withDictionary:(NSDictionary *)dictionary;
-+ (NSData *)dataFromSecKey:(SecKeyRef)keyRef withCSP:(CSSM_CSP_HANDLE)cspHandle;
++ (NSData *)dataFromSecKey:(SecKeyRef)keyRef;// withCSP:(CSSM_CSP_HANDLE)cspHandle;
 + (NSData *)openSSLPrivateKeyDataWithFormat:(SSCryptoDataFormat)format fromSecKeyData:(NSData *)data;
 
 @end
@@ -74,22 +76,29 @@ CSSM_CSP_HANDLE initCSSM(BOOL raw);
 #pragma mark API methods
 
 + (SecKeyRef)SecKeyCreatePrivateKeyWithLength:(NSUInteger)lengthInBits {
-	NSData *keyBytes = NULL;
-	CSSM_KEY cssmKey = {0};
-	SecKeyRef keyRef = NULL;
+	SecKeyRef public = NULL, private = NULL;
+	SecKeyCreatePair(keychain, 
+					 CSSM_ALGID_RSA, 
+					 lengthInBits, 
+					 0, 
+					 CSSM_KEYUSE_ENCRYPT|CSSM_KEYUSE_VERIFY|CSSM_KEYUSE_WRAP,
+					 CSSM_KEYATTR_EXTRACTABLE|CSSM_KEYATTR_PERMANENT,
+					 CSSM_KEYUSE_ANY,
+					 CSSM_KEYATTR_EXTRACTABLE|CSSM_KEYATTR_PERMANENT,
+					 NULL, 
+					 &public, 
+					 &private);
 	
-	keyBytes = [SSCrypto generateRSAPrivateKeyWithLength:1024];
-	[SSCrypto generateCSSMKey:&cssmKey fromPrivateKey:keyBytes format:kSSCryptoDataFormatPEM];
-	SecKeyCreateWithCSSMKey(&cssmKey, &keyRef);
-	
-	return keyRef;
+	if (public) CFRelease(public);
+	return private;
 }
 
 + (SecCertificateRef)certificateWithBaseCertificate:(SecCertificateRef)baseCert 
 							   modifiedByDictionary:(NSDictionary *)dictionary 
 									 withPrivateKey:(SecKeyRef)privateKey 
 										   signedBy:(CFTypeRef)signer {
-	NSData *privateKeyData = [SSCrypto dataFromSecKey:privateKey withCSP:0];
+
+	NSData *privateKeyData = [SSCrypto dataFromSecKey:privateKey];
 	privateKeyData = [SSCrypto openSSLPrivateKeyDataWithFormat:kSSCryptoDataFormatDER fromSecKeyData:privateKeyData];
 	
 	SecKeyRef signerKey = NULL;
@@ -103,7 +112,7 @@ CSSM_CSP_HANDLE initCSSM(BOOL raw);
 		return NULL;
 	}
 	
-	NSData *signerPrivateKeyData = [SSCrypto dataFromSecKey:signerKey withCSP:0];
+	NSData *signerPrivateKeyData = [SSCrypto dataFromSecKey:signerKey];
 	signerPrivateKeyData = [SSCrypto openSSLPrivateKeyDataWithFormat:kSSCryptoDataFormatDER fromSecKeyData:signerPrivateKeyData];
 	
 	BIO *bio_pkey = [privateKeyData bio];
@@ -243,51 +252,50 @@ CSSM_CSP_HANDLE initCSSM(BOOL raw);
 #pragma mark -
 #pragma mark Utility methods
 
-+ (NSData *)dataFromSecKey:(SecKeyRef)keyRef withCSP:(CSSM_CSP_HANDLE)cspHandle {
++ (void)initialize {
+	if (self == [SSCrypto class]) {
+		NSString *dir = [[NSFileManager defaultManager] applicationSupportDirectory];
+		NSString *keychainPath = [dir stringByAppendingPathComponent:@"xpeek-keychain"];
+		
+		SecKeychainCreate([keychainPath UTF8String], 8, "password", NO, NULL, &keychain);
+	}
+}
+
++ (NSData *)dataFromSecKey:(SecKeyRef)keyRef {
 	CSSM_RETURN crtn = 0;
-	
+	CSSM_CSP_HANDLE cspHandle = 0;
 	CSSM_KEY *cssmKey = NULL;
 	CSSM_WRAP_KEY wrappedKey = {0};
 	CSSM_CC_HANDLE ccHandle = 0;
-	CSSM_ACCESS_CREDENTIALS creds = {0};
+	
+	
+	CSSM_ACCESS_CREDENTIALS *creds = NULL;
+	OSStatus err = SecKeyGetCredentials(keyRef,
+                                        CSSM_ACL_AUTHORIZATION_IMPORT_WRAPPED,
+                                        kSecCredentialTypeDefault,
+                                        &creds);
 	
 	SecKeyGetCSSMKey(keyRef, (const CSSM_KEY **)&cssmKey);
-	//SecKeyGetCSPHandle(keyRef, &cspHandle);
-	if (!cspHandle) cspHandle = initCSSM(NO);
+	SecKeyGetCSPHandle(keyRef, &cspHandle);;
 	
 	crtn = CSSM_CSP_CreateSymmetricContext(cspHandle, 
 									CSSM_ALGID_NONE,
-									// Have also tried CSSM_ALGMODE_WRAP 
 									CSSM_ALGMODE_NONE, 
-									&creds, 
+									creds, 
 									NULL, 
 									NULL, 
 									CSSM_PADDING_NONE, 
 									0, 
 									&ccHandle);
 	
-	// 
-	// TODO: would be needed for CSSM_KEYATTR_SENSITIVE keys
-	/*
-	CSSM_CONTEXT_ATTRIBUTE attr = {0};
-	attr.AttributeType = CSSM_ATTRIBUTE_WRAPPED_KEY_FORMAT;
-	attr.Attribute.Uint32 = CSSM_KEYBLOB_WRAPPED_FORMAT_OPENSSL;
-	attr.AttributeLength = sizeof(uint32_t);
-	CSSM_UpdateContextAttributes(ccHandle, 1, &attr);*/
-
-	
 	if (crtn) cssmPerror("CSSM_CSP_CreateSymmetricContext", crtn);
-	
-	//wrappedKey.KeyHeader.KeyAttr = CSSM_KEYATTR_RETURN_REF;
-	
+
 	crtn = CSSM_WrapKey(ccHandle, 
-				 &creds, 
+				 creds, 
 				 cssmKey, 
 				 NULL, 
 				 &wrappedKey);
-	
-	size_t size = SecKeyGetBlockSize(keyRef);
-	
+
 	if (crtn) cssmPerror("CSSM_WrapKey", crtn);
 	
 	return [NSData dataWithBytes:wrappedKey.KeyData.Data length:wrappedKey.KeyData.Length];
@@ -499,172 +507,5 @@ void add_X509v3_ext(X509 *x, int nid, char *value) {
 		add_X509v3_ext(x509, NID_subject_alt_name, NSFORMAT8(@"DNS:%@", [dictionary objectForKey:kSSCryptoX509SubjectAlternativeName]));
 	
 }
-
-#pragma mark -
-#pragma mark To be deprecated?
-
-+ (SecKeyRef)SecKeyCreateWithPrivateKeyBytes:(NSData *)privateKey format:(SSCryptoDataFormat)format {
-	CSSM_KEY cssmKey;
-	SecKeyRef keyRef;
-	
-	[SSCrypto generateCSSMKey:&cssmKey fromPrivateKey:privateKey format:format];
-	SecKeyCreateWithCSSMKey(&cssmKey, &keyRef);
-	
-	return keyRef;
-}
-
-+ (SecIdentityRef)SecIdentityCreateWithDictionary:(NSDictionary *)dictionary signedByIdentity:(SecIdentityRef)signerIdentity {
-	NSData *keyBytes = [SSCrypto generateRSAPrivateKeyWithLength:2048];
-	SecKeyRef keyRef = [self SecKeyCreateWithPrivateKeyBytes:keyBytes format:kSSCryptoDataFormatPEM];
-	
-	SecKeyRef signerKeyRef = NULL;
-	NSData *signerKeyBytes = nil;
-	NSDictionary *issuerDictionary = nil;
-	
-	if (signerIdentity) {
-		SecIdentityCopyPrivateKey(signerIdentity, &signerKeyRef);
-		NSData *pkcs8SignerKeyBytes = [self dataFromSecKey:signerKeyRef withCSP:0];
-		signerKeyBytes = [self openSSLPrivateKeyDataWithFormat:kSSCryptoDataFormatPEM fromSecKeyData:pkcs8SignerKeyBytes];
-		
-		SecCertificateRef signerCert = NULL;
-		SecIdentityCopyCertificate(signerIdentity, &signerCert);
-		
-		NSString *commonName = nil;
-		SecCertificateCopyCommonName(signerCert, (CFStringRef *)&commonName);
-		
-		issuerDictionary = $dict(
-								 {kSSCryptoX509CommonName, commonName},
-								 {kSSCryptoX509Country, @"AU"}, // TODO: Hacky!
-								 );
-	} else {
-		signerKeyBytes = keyBytes;
-		
-		// Self-signed, issuer == subject
-		issuerDictionary = [dictionary objectForKey:kSSCryptoX509Subject];
-		
-	}
-	
-	dictionary = [NSMutableDictionary dictionaryWithDictionary:dictionary];
-	[(NSMutableDictionary *)dictionary setObject:issuerDictionary forKey:kSSCryptoX509Issuer];
-	
-	NSData *certBytes = [SSCrypto X509CertificateForDictionary:dictionary 
-													WithFormat:kSSCryptoDataFormatDER 
-												WithPrivateKey:keyBytes 
-												 signedWithKey:signerKeyBytes 
-													 keyFormat:kSSCryptoDataFormatPEM];
-	SecCertificateRef certificateRef = SecCertificateCreateWithData(kCFAllocatorDefault, (CFDataRef)certBytes);
-	
-	return SecIdentityCreate(kCFAllocatorDefault, certificateRef, keyRef);
-}
-
-+ (NSData *)X509CertificateForDictionary:(NSDictionary *)dictionary WithPrivateKey:(NSData *)privateKey {
-	return [SSCrypto X509CertificateForDictionary:dictionary 
-											   WithFormat:kSSCryptoDataFormatPEM 
-										   WithPrivateKey:privateKey
-											signedWithKey:privateKey
-												keyFormat:kSSCryptoDataFormatPEM];
-}
-
-+ (NSData *)X509CertificateForDictionary:(NSDictionary *)dictionary 
-									  WithFormat:(SSCryptoDataFormat)certFormat 
-								  WithPrivateKey:(NSData *)privateKey 
-								   signedWithKey:(NSData *)caPrivateKey
-									   keyFormat:(SSCryptoDataFormat)keyFormat {	
-	EVP_PKEY *pk = NULL, *spk = NULL;
-	X509 *x = NULL;
-	BIO *bio_pk = NULL, *bio_spk = NULL;
-	BIO *bio_x509 = NULL;
-	char *bio_x509_data = NULL;
-	
-	bio_pk = BIO_new_mem_buf((unsigned char *)[privateKey bytes], [privateKey length]);
-	bio_spk = BIO_new_mem_buf((unsigned char *)[caPrivateKey bytes], [caPrivateKey length]);
-
-	switch (keyFormat) {
-		case kSSCryptoDataFormatDER:
-			d2i_PrivateKey_bio(bio_pk, &pk);
-			d2i_PrivateKey_bio(bio_spk, &spk);
-			break;
-			
-		case kSSCryptoDataFormatPEM:
-			pk = PEM_read_bio_PrivateKey(bio_pk, NULL, NULL, NULL);
-			spk = PEM_read_bio_PrivateKey(bio_spk, NULL, NULL, NULL);
-			break;
-			
-		default:
-			return nil;
-	}
-
-	int serial = 0;
-	int days = 365;
-	
-	x = X509_new();
-	
-	X509_set_version(x, 2);
-	ASN1_INTEGER_set(X509_get_serialNumber(x), serial);
-	X509_gmtime_adj(X509_get_notBefore(x), 0);
-	X509_gmtime_adj(X509_get_notAfter(x), (long)60*60*24*days);
-	X509_set_pubkey(x, pk);
-	
-	[SSCrypto populateX509:x withDictionary:dictionary];
-	BOOL isCA = [privateKey isEqualToData:caPrivateKey];
-	
-	void(^add_X509v3_ext_0)(int, char *)  = ^ (int nid, char *value) {
-		X509_EXTENSION *ex;
-		X509V3_CTX ctx;
-		
-		/* This sets the 'context' of the extensions. */
-		/* No configuration database */
-		/* Issuer and subject certs: both the target since it is self signed,
-		 * no request and no CRL
-		 */
-		
-		X509V3_set_ctx(&ctx, x, x, NULL, NULL, 0);
-		ex = X509V3_EXT_conf_nid(NULL, &ctx, nid, value);
-		if (!ex) return;
-		
-		X509_add_ext(x, ex, -1);
-		X509_EXTENSION_free(ex);
-		//return 1;
-	};
-	
-	if (isCA) add_X509v3_ext_0(NID_basic_constraints, "critical,CA:TRUE");
-	add_X509v3_ext_0(NID_key_usage, "critical,keyCertSign,cRLSign");
-	add_X509v3_ext_0(NID_subject_key_identifier, "hash");
-	if (isCA) add_X509v3_ext_0(NID_netscape_cert_type, "sslCA");
-	add_X509v3_ext_0(NID_netscape_comment, "example comment extension");
-	
-	if ([dictionary objectForKey:kSSCryptoX509SubjectAlternativeName]) {
-		NSString *fmtd = [NSString stringWithFormat:@"DNS:%@", [dictionary objectForKey:kSSCryptoX509SubjectAlternativeName]];
-		add_X509v3_ext_0(NID_subject_alt_name, [fmtd UTF8String]);
-	}
-	
-	X509_sign(x, spk, EVP_md5());
-	
-	bio_x509 = BIO_new(BIO_s_mem());
-	
-	switch (certFormat) {
-		case kSSCryptoDataFormatDER:
-			i2d_X509_bio(bio_x509, x);
-			break;
-			
-		case kSSCryptoDataFormatPEM:
-			PEM_write_bio_X509(bio_x509, x);
-			break;
-			
-		default:
-			return nil;
-	}
-	
-	int bio_x509_length = BIO_get_mem_data(bio_x509, &bio_x509_data);
-	NSData *x509_data = [NSData dataWithBytes:bio_x509_data length:bio_x509_length];
-	
-	BIO_free(bio_pk);
-	BIO_free(bio_spk);
-	BIO_free(bio_x509);
-	
-	return x509_data;
-}
-
-
 
 @end
